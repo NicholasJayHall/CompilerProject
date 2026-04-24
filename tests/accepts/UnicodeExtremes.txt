@@ -1,0 +1,3 @@
+const Zero = / "%x0;" /
+const Max = / "%x1114111;" /
+/ ${Zero} | ${Max} /

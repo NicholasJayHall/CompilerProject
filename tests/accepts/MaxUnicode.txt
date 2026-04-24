@@ -1,0 +1,2 @@
+const FileExt = / ".txt" | ".c" | ".h" /
+/ .+ & ${FileExt} & "%x1114111;" /

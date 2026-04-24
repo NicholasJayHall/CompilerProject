@@ -1,0 +1,2 @@
+const BadChar = / "%x1114112;" /
+/ ${BadChar} /

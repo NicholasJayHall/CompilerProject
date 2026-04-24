@@ -1,0 +1,3 @@
+const A = / "a" / // defining A
+const B = / "b" / // defining B
+/ ${A} | "mid" | ${B} / // root regex

@@ -1,0 +1,23 @@
+Compilation:
+
+	make
+
+	To clean up the generated executable and object files, run:
+
+	make clean
+
+How to Run
+
+Pass a single text file containing the regex definitions and expression as a command-line argument:
+
+./parse test.txt
+
+Project Files
+
+    lexer.l: The Flex file that tokenizes the input string and handles escaped Unicode characters.
+
+    parser.y: The Bison file that defines the grammar rules, resolves operator precedence, and builds the AST.
+
+    tree.c / tree.h: The C logic and structs for dynamically allocating, printing, and safely freeing the AST nodes.
+
+    Makefile: Automates the compilation process.

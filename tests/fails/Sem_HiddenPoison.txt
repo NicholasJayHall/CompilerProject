@@ -1,0 +1,2 @@
+const BadUnicode = / "%x99999999;" /
+/ . /

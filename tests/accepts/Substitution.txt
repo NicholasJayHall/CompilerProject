@@ -1,0 +1,3 @@
+const Vowel = / [aeiou] /
+const Consonant = / [b-d f-h j-n p-t v-z] /
+/ ${Vowel}+ | ${Consonant}* /

@@ -1,0 +1,11 @@
+// This should pass perfectly.
+const 
+  SpacedOut 
+    = 
+      / 
+        " " 
+      /
+
+/
+  ${SpacedOut}    &    !   "hello"   |   "world"
+/
