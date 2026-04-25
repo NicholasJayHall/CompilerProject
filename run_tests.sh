@@ -14,8 +14,8 @@ fail() { echo -e "${RED}[FAIL]${NC} $1"; ((FAIL++)); }
 # Sanity checks
 # -----------------------------------------------------------------------
 
-if [ ! -f "./semantics" ]; then
-    echo -e "${RED}Error: ./semantics not found. Run 'make' first.${NC}"
+if [ ! -f "./generate" ]; then
+    echo -e "${RED}Error: ./generate not found. Run 'make' first.${NC}"
     exit 1
 fi
 
@@ -38,7 +38,7 @@ echo ""
 echo "--- Should ACCEPT ---"
 for file in tests/accepts/*.txt; do
     [ -f "$file" ] || continue
-    ./semantics "$file" > /dev/null 2>&1
+    ./generate "$file" > /dev/null 2>&1
     if [ $? -eq 0 ]; then
         pass "$file"
     else
@@ -50,7 +50,7 @@ echo ""
 echo "--- Should FAIL ---"
 for file in tests/fails/*.txt; do
     [ -f "$file" ] || continue
-    OUTPUT=$(./semantics "$file" 2>&1)
+    OUTPUT=$(./generate "$file" 2>&1)
     EXIT_CODE=$?
 
     if [ $EXIT_CODE -eq 0 ]; then
@@ -124,7 +124,7 @@ for regex_file in tests/accepts/*.txt; do
     rexec_bin="${regex_dir}/rexec"
 
     # Step 1: generate rexec.c
-    ./semantics "$regex_file" > /dev/null 2>&1
+    ./generate "$regex_file" > /dev/null 2>&1
     if [ $? -ne 0 ]; then
         fail "$regex_file (semantic check failed during codegen phase)"
         continue

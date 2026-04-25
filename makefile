@@ -4,7 +4,7 @@ LEX = flex
 YACC = bison
 YFLAGS = -d -v
 
-TARGET = semantics
+TARGET = generate
 OBJS = lex.yy.o parser.tab.o tree.o semantics.o codegen.o
 
 $(TARGET): $(OBJS)

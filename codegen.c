@@ -115,18 +115,6 @@ static void emit_range_char(const char* raw, FILE* out) {
     }
 }
 
-/* -----------------------------------------------------------------------
- * emit_node
- *
- * Recursively walks the AST.  For each node it:
- *   1. Recurses into children FIRST (post-order) so that child functions
- *      are defined before the parent that calls them.
- *   2. Emits a C function  int match_<id>(const char*,int,int)  that
- *      implements the matching logic for this node by calling the child
- *      functions.
- *
- * Returns the `id` of the function it emitted so the caller can call it.
- * ----------------------------------------------------------------------- */
 int emit_node(Node* node, FILE* out, int id, Symbol* sym_table) {
     if (node == NULL) return -1;
 
@@ -134,9 +122,6 @@ int emit_node(Node* node, FILE* out, int id, Symbol* sym_table) {
 
         /* ---- PROGRAM root: just emit the main regex (right child) ---- */
         case NODE_PROGRAM: {
-            /* left = definitions chain, right = root regex */
-            /* Definitions are handled via the symbol table substitution
-               in NODE_SUB, so we only need to emit the root regex. */
             int root_id = next_id();
             emit_node(node->right, out, root_id, sym_table);
             return root_id;
@@ -253,13 +238,7 @@ int emit_node(Node* node, FILE* out, int id, Symbol* sym_table) {
 
         /* ---- RANGE: character class ---- */
         case NODE_RANGE: {
-            /*
-             * The parser builds ranges as a binary tree of NODE_RANGE nodes.
-             * A leaf NODE_RANGE has value = single char (start) and
-             * right = leaf with value = end char for "a-z" style ranges.
-             * A non-leaf NODE_RANGE has left and right subtrees to combine.
-             */
-            if (node->left != NULL && node->right != NULL &&
+            if (node->left == NULL && node->right != NULL &&
                 node->left->type == NODE_RANGE && node->right->type != NODE_RANGE) {
                 /* This is a  X-Y  range item: value=X, right->value=Y */
                 fprintf(out,
@@ -392,7 +371,7 @@ static int count_nodes(Node* node, Symbol* sym_table) {
             return 1 + count_nodes(node->left, sym_table);
 
         case NODE_RANGE:
-            if (node->left != NULL && node->right != NULL &&
+            if (node->left == NULL && node->right != NULL &&
                 node->left->type == NODE_RANGE && node->right->type != NODE_RANGE) {
                 /* X-Y leaf range: just 1 */
                 return 1;
@@ -422,15 +401,6 @@ static int count_nodes(Node* node, Symbol* sym_table) {
     }
 }
 
-/* -----------------------------------------------------------------------
- * codegen
- *
- * Top-level entry point.  Emits a complete rexec.c:
- *   1. Standard headers
- *   2. Forward declarations for every match_N function
- *   3. All the match_N() function bodies (via emit_node)
- *   4. A main() that reads a file and calls the root matcher
- * ----------------------------------------------------------------------- */
 void codegen(Node* root, FILE* out) {
     if (root == NULL || root->type != NODE_PROGRAM) {
         fprintf(stderr, "codegen: expected NODE_PROGRAM at root\n");

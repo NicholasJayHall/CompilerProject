@@ -114,10 +114,10 @@ CharRanges:
 RangeItem:
     ID                            { $$ = create_leaf(NODE_ID, $1); }
     | ID DASH ID %prec DASH       { Node* n = create_leaf(NODE_RANGE, $1); n->right = create_leaf(NODE_RANGE, $3); $$ = n; }
-    | PLUS                        { $$ = create_leaf(NODE_LITERAL, strdup("+")); }
-    | DASH                        { $$ = create_leaf(NODE_LITERAL, strdup("-")); }
-    | UNDERSCORE                  { $$ = create_leaf(NODE_LITERAL, strdup("_")); }
-    | EQUALS                      { $$ = create_leaf(NODE_LITERAL, strdup("=")); }
+    | PLUS                        { $$ = create_leaf(NODE_ID, strdup("+")); }
+    | DASH                        { $$ = create_leaf(NODE_ID, strdup("-")); }
+    | UNDERSCORE                  { $$ = create_leaf(NODE_ID, strdup("_")); }
+    | EQUALS                      { $$ = create_leaf(NODE_ID, strdup("=")); }
     ;
 
 %%
