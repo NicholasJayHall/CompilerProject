@@ -34,11 +34,10 @@ static int codepoint_to_utf8(int cp, char* buf) {
 
 static void emit_literal_string(const char* raw, FILE* out) {
     if (!raw) return;
-    const char* p = raw + 1; /* skip opening " */
+    const char* p = raw + 1;
     fputc('"', out);
     while (*p && !(*p == '"' && *(p+1) == '\0') && *p != '\0') {
-        if (*p == '"') { break; }
-
+        if (*p == '"') break;
         if (*p == '%' && *(p+1) == 'x') {
             p += 2;
             int cp = 0;
@@ -46,24 +45,19 @@ static void emit_literal_string(const char* raw, FILE* out) {
                 cp = cp * 10 + (*p - '0');
                 p++;
             }
-            if (*p == ';') p++; 
+            if (*p == ';') p++;
             char utf8[4];
             int nbytes = codepoint_to_utf8(cp, utf8);
             for (int i = 0; i < nbytes; i++) {
                 fprintf(out, "\\x%02x", (unsigned char)utf8[i]);
             }
         } else if (*p == '\\') {
-            fputc(*p, out);
-            p++;
+            fputc(*p, out); p++;
             if (*p) { fputc(*p, out); p++; }
         } else {
-            if (*p == '"') {
-                fputs("\\\"", out);
-            } else if (*p == '\\') {
-                fputs("\\\\", out);
-            } else {
-                fputc(*p, out);
-            }
+            if (*p == '"') fputs("\\\"", out);
+            else if (*p == '\\') fputs("\\\\", out);
+            else fputc(*p, out);
             p++;
         }
     }
@@ -72,7 +66,7 @@ static void emit_literal_string(const char* raw, FILE* out) {
 
 static int literal_byte_length(const char* raw) {
     if (!raw) return 0;
-    const char* p = raw + 1; 
+    const char* p = raw + 1;
     int len = 0;
     while (*p && *p != '"') {
         if (*p == '%' && *(p+1) == 'x') {
@@ -85,8 +79,7 @@ static int literal_byte_length(const char* raw) {
             else if (cp <= 0xFFFF) len += 3;
             else                   len += 4;
         } else {
-            len++;
-            p++;
+            len++; p++;
         }
     }
     return len;
@@ -124,14 +117,14 @@ int emit_node(Node* node, FILE* out, int id, Symbol* sym_table) {
             int byte_len = literal_byte_length(node->value);
             fprintf(out,
                 "/* LITERAL */\n"
-                "static int match_%d(const char* s, int pos, int len) {\n"
+                "static void match_%d(const char* s, int pos, int len, char* out_set) {\n"
                 "    const char* lit = ", id);
             emit_literal_string(node->value, out);
             fprintf(out, ";\n"
                 "    int litlen = %d;\n"
-                "    if (pos + litlen > len) return -1;\n"
-                "    if (memcmp(s + pos, lit, litlen) == 0) return pos + litlen;\n"
-                "    return -1;\n"
+                "    if (pos + litlen <= len && memcmp(s + pos, lit, litlen) == 0) {\n"
+                "        out_set[pos + litlen] = 1;\n"
+                "    }\n"
                 "}\n\n", byte_len);
             return id;
         }
@@ -139,9 +132,8 @@ int emit_node(Node* node, FILE* out, int id, Symbol* sym_table) {
         case NODE_WILD: {
             fprintf(out,
                 "/* WILD */\n"
-                "static int match_%d(const char* s, int pos, int len) {\n"
-                "    if (pos < len) return pos + 1;\n"
-                "    return -1;\n"
+                "static void match_%d(const char* s, int pos, int len, char* out_set) {\n"
+                "    if (pos < len) out_set[pos + 1] = 1;\n"
                 "}\n\n", id);
             return id;
         }
@@ -153,10 +145,15 @@ int emit_node(Node* node, FILE* out, int id, Symbol* sym_table) {
             emit_node(node->right, out, right_id, sym_table);
             fprintf(out,
                 "/* SEQ */\n"
-                "static int match_%d(const char* s, int pos, int len) {\n"
-                "    int mid = match_%d(s, pos, len);\n"
-                "    if (mid == -1) return -1;\n"
-                "    return match_%d(s, mid, len);\n"
+                "static void match_%d(const char* s, int pos, int len, char* out_set) {\n"
+                "    char* left_set = (char*)calloc(len + 1, 1);\n"
+                "    match_%d(s, pos, len, left_set);\n"
+                "    for (int i = pos; i <= len; i++) {\n"
+                "        if (left_set[i]) {\n"
+                "            match_%d(s, i, len, out_set);\n"
+                "        }\n"
+                "    }\n"
+                "    free(left_set);\n"
                 "}\n\n", id, left_id, right_id);
             return id;
         }
@@ -167,10 +164,15 @@ int emit_node(Node* node, FILE* out, int id, Symbol* sym_table) {
                 emit_node(node->left, out, child_id, sym_table);
                 fprintf(out,
                     "/* NEGATION */\n"
-                    "static int match_%d(const char* s, int pos, int len) {\n"
-                    "    int r = match_%d(s, pos, len);\n"
-                    "    if (r == -1 && pos < len) return pos + 1;\n"
-                    "    return -1;\n"
+                    "static void match_%d(const char* s, int pos, int len, char* out_set) {\n"
+                    "    char* child_set = (char*)calloc(len + 1, 1);\n"
+                    "    match_%d(s, pos, len, child_set);\n"
+                    "    int matched = 0;\n"
+                    "    for (int i = pos; i <= len; i++) {\n"
+                    "        if (child_set[i]) { matched = 1; break; }\n"
+                    "    }\n"
+                    "    free(child_set);\n"
+                    "    if (!matched && pos < len) out_set[pos + 1] = 1;\n"
                     "}\n\n", id, child_id);
             } else {
                 int left_id  = next_id();
@@ -179,10 +181,9 @@ int emit_node(Node* node, FILE* out, int id, Symbol* sym_table) {
                 emit_node(node->right, out, right_id, sym_table);
                 fprintf(out,
                     "/* ALT */\n"
-                    "static int match_%d(const char* s, int pos, int len) {\n"
-                    "    int r = match_%d(s, pos, len);\n"
-                    "    if (r != -1) return r;\n"
-                    "    return match_%d(s, pos, len);\n"
+                    "static void match_%d(const char* s, int pos, int len, char* out_set) {\n"
+                    "    match_%d(s, pos, len, out_set);\n"
+                    "    match_%d(s, pos, len, out_set);\n"
                     "}\n\n", id, left_id, right_id);
             }
             return id;
@@ -192,30 +193,67 @@ int emit_node(Node* node, FILE* out, int id, Symbol* sym_table) {
             int child_id = next_id();
             emit_node(node->left, out, child_id, sym_table);
 
-            if (node->op == '+') {
+            if (node->op == '*') {
                 fprintf(out,
-               	"/* REPEAT + */\n"
-    		    "static int match_%d(const char* s, int pos, int len) {\n"
-    		    "    int cur = match_%d(s, pos, len);\n"
-    		    "    if (cur == -1) return -1;\n"
-    		    "    int next;\n"
-    		    "    while ((next = match_%d(s, cur, len)) != -1 && next > cur) cur = next;\n"
-    		    "    return cur;\n"
-   		        "}\n\n", id, child_id, child_id);
-            } else if (node->op == '*') {
-               fprintf(out,
-    		    "/* REPEAT * */\n"
-    		    "static int match_%d(const char* s, int pos, int len) {\n"
-    		    "    int cur = pos, next;\n"
-    		    "    while ((next = match_%d(s, cur, len)) != -1 && next > cur) cur = next;\n"
-   		        "    return cur;\n"
-    		    "}\n\n", id, child_id); 
+                    "/* REPEAT * */\n"
+                    "static void match_%d(const char* s, int pos, int len, char* out_set) {\n"
+                    "    char* cur_set = (char*)calloc(len + 1, 1);\n"
+                    "    char* next_set = (char*)calloc(len + 1, 1);\n"
+                    "    cur_set[pos] = 1;\n"
+                    "    out_set[pos] = 1;\n"
+                    "    int changed = 1;\n"
+                    "    while (changed) {\n"
+                    "        changed = 0;\n"
+                    "        memset(next_set, 0, len + 1);\n"
+                    "        for (int i = pos; i <= len; i++) {\n"
+                    "            if (cur_set[i]) match_%d(s, i, len, next_set);\n"
+                    "        }\n"
+                    "        for (int i = pos; i <= len; i++) {\n"
+                    "            if (next_set[i] && !out_set[i]) {\n"
+                    "                out_set[i] = 1;\n"
+                    "                cur_set[i] = 1;\n"
+                    "                changed = 1;\n"
+                    "            } else {\n"
+                    "                cur_set[i] = 0;\n"
+                    "            }\n"
+                    "        }\n"
+                    "    }\n"
+                    "    free(cur_set);\n"
+                    "    free(next_set);\n"
+                    "}\n\n", id, child_id);
+            } else if (node->op == '+') {
+                fprintf(out,
+                    "/* REPEAT + */\n"
+                    "static void match_%d(const char* s, int pos, int len, char* out_set) {\n"
+                    "    char* cur_set = (char*)calloc(len + 1, 1);\n"
+                    "    char* next_set = (char*)calloc(len + 1, 1);\n"
+                    "    cur_set[pos] = 1;\n"
+                    "    int changed = 1;\n"
+                    "    while (changed) {\n"
+                    "        changed = 0;\n"
+                    "        memset(next_set, 0, len + 1);\n"
+                    "        for (int i = pos; i <= len; i++) {\n"
+                    "            if (cur_set[i]) match_%d(s, i, len, next_set);\n"
+                    "        }\n"
+                    "        for (int i = pos; i <= len; i++) {\n"
+                    "            if (next_set[i] && !out_set[i]) {\n"
+                    "                out_set[i] = 1;\n"
+                    "                cur_set[i] = 1;\n"
+                    "                changed = 1;\n"
+                    "            } else {\n"
+                    "                cur_set[i] = 0;\n"
+                    "            }\n"
+                    "        }\n"
+                    "    }\n"
+                    "    free(cur_set);\n"
+                    "    free(next_set);\n"
+                    "}\n\n", id, child_id);
             } else { 
                 fprintf(out,
                     "/* REPEAT ? */\n"
-                    "static int match_%d(const char* s, int pos, int len) {\n"
-                    "    int r = match_%d(s, pos, len);\n"
-                    "    return (r != -1) ? r : pos;\n"
+                    "static void match_%d(const char* s, int pos, int len, char* out_set) {\n"
+                    "    out_set[pos] = 1;\n"
+                    "    match_%d(s, pos, len, out_set);\n"
                     "}\n\n", id, child_id);
             }
             return id;
@@ -225,15 +263,15 @@ int emit_node(Node* node, FILE* out, int id, Symbol* sym_table) {
             if (node->left == NULL && node->right != NULL && node->right->type == NODE_RANGE) {
                 fprintf(out,
                     "/* RANGE item X-Y */\n"
-                    "static int match_%d(const char* s, int pos, int len) {\n"
-                    "    if (pos >= len) return -1;\n"
-                    "    unsigned char c = (unsigned char)s[pos];\n"
-                    "    if (c >= ", id);
+                    "static void match_%d(const char* s, int pos, int len, char* out_set) {\n"
+                    "    if (pos < len) {\n"
+                    "        unsigned char c = (unsigned char)s[pos];\n"
+                    "        if (c >= ", id);
                 emit_range_char(node->value, out);
                 fprintf(out, " && c <= ");
                 emit_range_char(node->right->value, out);
-                fprintf(out, ") return pos + 1;\n"
-                    "    return -1;\n"
+                fprintf(out, ") out_set[pos + 1] = 1;\n"
+                    "    }\n"
                     "}\n\n");
             } else if (node->left != NULL && node->right != NULL) {
                 int left_id  = next_id();
@@ -242,21 +280,20 @@ int emit_node(Node* node, FILE* out, int id, Symbol* sym_table) {
                 emit_node(node->right, out, right_id, sym_table);
                 fprintf(out,
                     "/* RANGE union */\n"
-                    "static int match_%d(const char* s, int pos, int len) {\n"
-                    "    int r = match_%d(s, pos, len);\n"
-                    "    if (r != -1) return r;\n"
-                    "    return match_%d(s, pos, len);\n"
+                    "static void match_%d(const char* s, int pos, int len, char* out_set) {\n"
+                    "    match_%d(s, pos, len, out_set);\n"
+                    "    match_%d(s, pos, len, out_set);\n"
                     "}\n\n", id, left_id, right_id);
             } else {
                 fprintf(out,
                     "/* RANGE single char */\n"
-                    "static int match_%d(const char* s, int pos, int len) {\n"
-                    "    if (pos >= len) return -1;\n"
-                    "    unsigned char c = (unsigned char)s[pos];\n"
-                    "    if (c == ", id);
+                    "static void match_%d(const char* s, int pos, int len, char* out_set) {\n"
+                    "    if (pos < len) {\n"
+                    "        unsigned char c = (unsigned char)s[pos];\n"
+                    "        if (c == ", id);
                 emit_range_char(node->value, out);
-                fprintf(out, ") return pos + 1;\n"
-                    "    return -1;\n"
+                fprintf(out, ") out_set[pos + 1] = 1;\n"
+                    "    }\n"
                     "}\n\n");
             }
             return id;
@@ -265,14 +302,17 @@ int emit_node(Node* node, FILE* out, int id, Symbol* sym_table) {
         case NODE_ID: {
             fprintf(out,
                 "/* RANGE ID char */\n"
-                "static int match_%d(const char* s, int pos, int len) {\n"
-                "    if (pos >= len) return -1;\n"
-                "    const char* chars = \"%s\";\n"
-                "    int clen = (int)strlen(chars);\n"
-                "    for (int i = 0; i < clen; i++) {\n"
-                "        if (s[pos] == chars[i]) return pos + 1;\n"
+                "static void match_%d(const char* s, int pos, int len, char* out_set) {\n"
+                "    if (pos < len) {\n"
+                "        const char* chars = \"%s\";\n"
+                "        int clen = (int)strlen(chars);\n"
+                "        for (int i = 0; i < clen; i++) {\n"
+                "            if (s[pos] == chars[i]) {\n"
+                "                out_set[pos + 1] = 1;\n"
+                "                break;\n"
+                "            }\n"
+                "        }\n"
                 "    }\n"
-                "    return -1;\n"
                 "}\n\n", id, node->value ? node->value : "");
             return id;
         }
@@ -291,8 +331,8 @@ int emit_node(Node* node, FILE* out, int id, Symbol* sym_table) {
             emit_node(sym->regex_tree, out, sub_id, sym_table);
             fprintf(out,
                 "/* SUB ${%s} -> delegates to match_%d */\n"
-                "static int match_%d(const char* s, int pos, int len) {\n"
-                "    return match_%d(s, pos, len);\n"
+                "static void match_%d(const char* s, int pos, int len, char* out_set) {\n"
+                "    match_%d(s, pos, len, out_set);\n"
                 "}\n\n", node->value, sub_id, id, sub_id);
             return id;
         }
@@ -376,7 +416,7 @@ void codegen(Node* root, FILE* out) {
 
     fprintf(out, "/* forward declarations */\n");
     for (int i = 0; i < total; i++) {
-        fprintf(out, "static int match_%d(const char* s, int pos, int len);\n", i);
+        fprintf(out, "static void match_%d(const char* s, int pos, int len, char* out_set);\n", i);
     }
     fprintf(out, "\n");
 
@@ -410,12 +450,14 @@ void codegen(Node* root, FILE* out) {
         "    }\n"
         "    int len = 0;\n"
         "    char* input = read_file(argv[1], &len);\n"
-        "    int end = match_%d(input, 0, len);\n"
-        "    if (end == len) {\n"
+        "    char* out_set = (char*)calloc(len + 1, 1);\n"
+        "    match_%d(input, 0, len, out_set);\n"
+        "    if (out_set[len]) {\n"
         "        printf(\"ACCEPTS\\n\");\n"
         "    } else {\n"
         "        printf(\"REJECTS\\n\");\n"
         "    }\n"
+        "    free(out_set);\n"
         "    free(input);\n"
         "    return 0;\n"
         "}\n", root_match_id);
